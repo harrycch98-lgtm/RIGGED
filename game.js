@@ -1,90 +1,78 @@
-﻿(() => {
-  "use strict";
+(() => {
+  // ===== WEBSOCKET MULTIPLAYER INTEGRATION =====
+const BACKEND_URL = 'ws://206.81.14.154:3000';
+let ws = null;
+let playerId = null;
+
+function initWebSocket() {
+  try {
+    ws = new WebSocket(BACKEND_URL);
+    
+    ws.onopen = () => {
+      console.log('Connected to multiplayer server');
+      if (playerId) joinGame();
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const allPlayers = JSON.parse(event.data);
+        syncRemotePlayers(allPlayers);
+      } catch (error) {
+        console.error('Error parsing player data:', error);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    ws.onclose = () => {
+      console.log('Disconnected from server. Reconnecting in 3s...');
+      setTimeout(initWebSocket, 3000);
+    };
+  } catch (error) {
+    console.error('Failed to connect to backend:', error);
+  }
+}
+
+function joinGame() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'join',
+      id: playerId,
+      name: players[HUMAN]?.leader || 'Player'
+    }));
+  }
+}
+
+function updatePlayerPosition(x, y) {
+  if (ws && ws.readyState === WebSocket.OPEN && playerId) {
+    ws.send(JSON.stringify({
+      type: 'move',
+      id: playerId,
+      x: x,
+      y: y
+    }));
+  }
+}
+
+function syncRemotePlayers(allPlayers) {
+  // Update remote player positions from server
+  if (!Array.isArray(allPlayers)) return;
+  
+  for (const serverPlayer of allPlayers) {
+    if (serverPlayer.id === playerId) continue; // Skip self
+    
+    const localPlayer = players.find(p => p.id === serverPlayer.id);
+    if (localPlayer) {
+      localPlayer.x = serverPlayer.x;
+      localPlayer.y = serverPlayer.y;
+    }
+  }
+}
+// ===== END WEBSOCKET INTEGRATION ====="use strict";
 
   const HUMAN = 0;
-  
-  // ===== WEBSOCKET MULTIPLAYER INTEGRATION =====
-  const BACKEND_URL = 'ws://206.81.14.154:3000';
-  let ws = null;
-  let playerId = null;
-  let lastPositionSync = 0;
-  const POSITION_SYNC_INTERVAL = 100; // ms
-
-  function initWebSocket() {
-    try {
-      ws = new WebSocket(BACKEND_URL);
-      
-      ws.onopen = () => {
-        console.log('✓ Connected to multiplayer server');
-        if (playerId) joinGame();
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const allPlayers = JSON.parse(event.data);
-          syncRemotePlayers(allPlayers);
-        } catch (error) {
-          console.error('Error parsing player data:', error);
-        }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('✗ WebSocket error:', error);
-      };
-      
-      ws.onclose = () => {
-        console.log('Disconnected. Reconnecting in 3s...');
-        setTimeout(initWebSocket, 3000);
-      };
-    } catch (error) {
-      console.error('Failed to connect to backend:', error);
-    }
-  }
-
-  function joinGame() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const humanPlayer = players[HUMAN];
-      ws.send(JSON.stringify({
-        type: 'join',
-        id: playerId,
-        name: humanPlayer?.leader || 'Player',
-        x: humanPlayer?.x || 0,
-        y: humanPlayer?.y || 0
-      }));
-    }
-  }
-
-  function updatePlayerPosition() {
-    if (!ws || ws.readyState !== WebSocket.OPEN || !playerId) return;
-    const now = Date.now();
-    if (now - lastPositionSync < POSITION_SYNC_INTERVAL) return;
-    
-    const humanPlayer = players[HUMAN];
-    if (humanPlayer) {
-      ws.send(JSON.stringify({
-        type: 'move',
-        id: playerId,
-        x: humanPlayer.x || 0,
-        y: humanPlayer.y || 0
-      }));
-      lastPositionSync = now;
-    }
-  }
-
-  function syncRemotePlayers(allPlayers) {
-    if (!Array.isArray(allPlayers)) return;
-    
-    for (const serverPlayer of allPlayers) {
-      if (serverPlayer.id === playerId) continue;
-      
-      const localPlayer = players.find(p => p.id === serverPlayer.id);
-      if (localPlayer) {
-        localPlayer.x = serverPlayer.x || 0;
-        localPlayer.y = serverPlayer.y || 0;
-      }
-    }
-  }
-  // ===== END WEBSOCKET INTEGRATION =====
   const MATCH_SECONDS = 1800;
   const CAMPAIGN_TOTAL_DAYS = 100;
   const CAMPAIGN_DAY_SECONDS = MATCH_SECONDS / CAMPAIGN_TOTAL_DAYS;
@@ -761,11 +749,6 @@
     multiplayerState.countdown = 0;
     saveLeaderProfile(selectedLeaderProfile);
     gameStarted = true;
-    
-    // Initialize multiplayer WebSocket
-    playerId = Math.random().toString(36).substr(2, 9);
-    initWebSocket();
-    
     mainMenu.classList.add("is-hidden");
     gameShell.classList.remove("is-hidden");
     startGame();
@@ -2120,7 +2103,6 @@
     const dt = Math.min(0.05, (now - lastFrame) / 1000);
     lastFrame = now;
     updateKeyboardPan(dt);
-    updatePlayerPosition(); // Sync position to multiplayer server
     if (!paused && !matchOver && !pipOpen) update(Math.min(0.5, dt * gameSpeed));
     if (now - lastUi > 180) {
       updateUi();
